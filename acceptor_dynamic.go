@@ -11,9 +11,13 @@ import (
 	"github.com/quickfixgo/quickfix/config"
 )
 
+// Verify new connection
+type VerifyConnection func( *Message) MessageRejectError
+
 //AcceptorDynamic accepts connections from FIX clients and manages the associated sessions.
 type AcceptorDynamic struct {
 	*Acceptor
+	verifier VerifyConnection
 }
 
 //Start accepting connections.
@@ -53,7 +57,7 @@ func (a *AcceptorDynamic) Start() error {
 }
 
 //NewAcceptorDynamic creates and initializes a new AcceptorDynamic.
-func NewAcceptorDynamic(app Application, storeFactory MessageStoreFactory, settings *Settings, logFactory LogFactory) (a *AcceptorDynamic, err error) {
+func NewAcceptorDynamic(app Application, storeFactory MessageStoreFactory, settings *Settings, logFactory LogFactory, verifier VerifyConnection) (a *AcceptorDynamic, err error) {
 	a = &AcceptorDynamic{
 		Acceptor: &Acceptor{
 			app:          app,
@@ -62,6 +66,7 @@ func NewAcceptorDynamic(app Application, storeFactory MessageStoreFactory, setti
 			logFactory:   logFactory,
 			sessions:     make(map[SessionID]*session),
 		},
+		verifier: verifier,
 	}
 
 	if a.globalLog, err = logFactory.Create(); err != nil {
@@ -171,11 +176,17 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 		SenderCompID: string(targetCompID), SenderSubID: string(targetSubID), SenderLocationID: string(targetLocationID),
 		TargetCompID: string(senderCompID), TargetSubID: string(senderSubID), TargetLocationID: string(senderLocationID),
 	}
+
+	if a.verifier != nil {
+		err := a.verifier(msg)
+		if err != nil {
+			a.globalLog.OnEventf("Connection verified failed: %s, %v", msg.String(), err.Error())
+			return
+		}
+	}
+
 	session, ok := a.sessions[sessID]
 	if !ok {
-		a.globalLog.OnEventf("Session %v not found for incoming message: %s", sessID, msgBytes)
-		a.globalLog.OnEventf("Create Session.")
-
 
 		for _, sessionSettings := range a.settings.SessionSettings() {
 			sessID.Qualifier = ""
