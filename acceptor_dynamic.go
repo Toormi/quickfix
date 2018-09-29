@@ -12,7 +12,7 @@ import (
 )
 
 // Verify new connection
-type VerifyConnection func( *Message) MessageRejectError
+type VerifyConnection func( *Message, *SessionID) MessageRejectError
 
 //AcceptorDynamic accepts connections from FIX clients and manages the associated sessions.
 type AcceptorDynamic struct {
@@ -178,7 +178,7 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 	}
 
 	if a.verifier != nil {
-		err := a.verifier(msg)
+		err := a.verifier(msg, &sessID)
 		if err != nil {
 			a.globalLog.OnEventf("Connection verified failed: %s, %v", msg.String(), err.Error())
 			return
