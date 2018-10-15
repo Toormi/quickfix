@@ -3,21 +3,24 @@ package quickfix
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"runtime/debug"
 	"strconv"
+	"sync"
 
 	"github.com/quickfixgo/quickfix/config"
 )
 
 // Verify new connection
-type VerifyConnection func( *Message, *SessionID) MessageRejectError
+type VerifyConnection func(*Message, *SessionID) MessageRejectError
 
 //AcceptorDynamic accepts connections from FIX clients and manages the associated sessions.
 type AcceptorDynamic struct {
 	*Acceptor
 	verifier VerifyConnection
+	sessLock sync.Mutex
 }
 
 //Start accepting connections.
@@ -185,36 +188,14 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 		}
 	}
 
-	session, ok := a.sessions[sessID]
-	if !ok {
-
-		for _, sessionSettings := range a.settings.SessionSettings() {
-			sessID.Qualifier = ""
-
-			// Create this session
-			if a.sessions[sessID], err = a.createSession(sessID, a.storeFactory, sessionSettings, a.logFactory, a.app); err != nil {
-				return
-			}
-
-			// Run this session
-			session := a.sessions[sessID]
-			a.sessionGroup.Add(1)
-			go func() {
-				session.run()
-				a.sessionGroup.Done()
-			}()
-
-			break
-		}
+	session, err := a.getOrCreateSession(sessID)
+	if err != nil {
+		a.globalLog.OnEventf(err.Error())
+		return
 	}
 
 	msgIn := make(chan fixIn)
 	msgOut := make(chan []byte)
-
-	session, ok = a.sessions[sessID]
-	if !ok {
-		a.globalLog.OnEventf("No this Session.")
-	}
 
 	if err := session.connect(msgIn, msgOut); err != nil {
 		a.globalLog.OnEventf("Unable to accept %v", err.Error())
@@ -227,4 +208,34 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 	}()
 
 	writeLoop(netConn, msgOut, a.globalLog)
+}
+
+func (a *AcceptorDynamic) getOrCreateSession(sessID SessionID) (*session, error) {
+	defer a.sessLock.Unlock()
+	a.sessLock.Lock()
+	session, ok := a.sessions[sessID]
+	if !ok {
+
+		for _, sessionSettings := range a.settings.SessionSettings() {
+			sessID.Qualifier = ""
+
+			// Create this session
+			var err error
+			if a.sessions[sessID], err = a.createSession(sessID, a.storeFactory, sessionSettings, a.logFactory, a.app); err != nil {
+				return nil, errors.New("create session error")
+			}
+
+			// Run this session
+			session = a.sessions[sessID]
+			a.sessionGroup.Add(1)
+			go func() {
+				session.run()
+				a.sessionGroup.Done()
+			}()
+
+			break
+		}
+	}
+
+	return session, nil
 }
