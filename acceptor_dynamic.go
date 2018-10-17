@@ -211,8 +211,9 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 }
 
 func (a *AcceptorDynamic) getOrCreateSession(sessID SessionID) (*session, error) {
-	defer a.sessLock.Unlock()
 	a.sessLock.Lock()
+	defer a.sessLock.Unlock()
+
 	session, ok := a.sessions[sessID]
 	if !ok {
 
