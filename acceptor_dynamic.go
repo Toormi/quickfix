@@ -39,7 +39,7 @@ func (a *AcceptorDynamic) Start() error {
 	}
 
 	var tlsConfig *tls.Config
-	if tlsConfig, err = loadTLSConfig(a.settings.GlobalSettings()); err != nil {
+	if tlsConfig, err = loadTLSConfigWithoutVerifyClientCert(a.settings.GlobalSettings()); err != nil {
 		return err
 	}
 
