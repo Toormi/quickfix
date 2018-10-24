@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"runtime/debug"
@@ -14,7 +15,7 @@ import (
 )
 
 // Verify new connection
-type VerifyConnection func(*Message, *SessionID) MessageRejectError
+type VerifyConnection func(*Message, *SessionID, net.Conn) MessageRejectError
 
 //AcceptorDynamic accepts connections from FIX clients and manages the associated sessions.
 type AcceptorDynamic struct {
@@ -181,7 +182,7 @@ func (a *AcceptorDynamic) handleConnection(netConn net.Conn) {
 	}
 
 	if a.verifier != nil {
-		err := a.verifier(msg, &sessID)
+		err := a.verifier(msg, &sessID, netConn)
 		if err != nil {
 			a.globalLog.OnEventf("Connection verified failed: %s, %v", msg.String(), err.Error())
 			return
@@ -232,6 +233,7 @@ func (a *AcceptorDynamic) getOrCreateSession(sessID SessionID) (*session, error)
 			go func() {
 				session.run()
 				a.sessionGroup.Done()
+				a.globalLog.OnEvent("session stoping")
 			}()
 
 			break
@@ -239,4 +241,14 @@ func (a *AcceptorDynamic) getOrCreateSession(sessID SessionID) (*session, error)
 	}
 
 	return session, nil
+}
+
+//StopSession stop one session indicated by sessID
+func (a *AcceptorDynamic) StopSession(sessID SessionID) error {
+	session, ok := a.sessions[sessID]
+	if !ok {
+		return fmt.Errorf("No this session: ", sessID.String())
+	}
+	session.stop()
+	return nil
 }
